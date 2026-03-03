@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>UGC Job Submit</title>
+  <style>
+    body { font-family: system-ui, Arial; max-width: 920px; margin: 28px auto; padding: 0 16px; }
+    h1 { margin: 0 0 6px; }
+    p { margin: 0 0 18px; opacity: .8; }
+    label { display:block; margin-top: 12px; font-weight: 650; }
+    input, select, textarea {
+      width: 100%; padding: 10px; margin-top: 6px;
+      border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box;
+    }
+    textarea { resize: vertical; }
+    .row { display:flex; gap:12px; }
+    .row > div { flex:1; }
+    button {
+      margin-top: 16px; padding: 12px 14px; border-radius: 12px;
+      border: 0; background: #111; color: #fff; cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    #msg { margin-top: 14px; padding: 12px; border-radius: 12px; background:#f7f7f7; white-space: pre-wrap; }
+    .hint { font-size: 12px; opacity: .75; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>UGC Submit</h1>
+  <p>Trimite un produs către pipeline. Accesul e controlat din sheet-ul <b>allowed_users</b>.</p>
+
+  <form id="f">
+    <label>Email</label>
+    <input name="email" type="email" required placeholder="you@company.com" />
+    <div class="hint">Trebuie să existe în allowed_users (Status=ACTIVE + Credits).</div>
+
+    <div class="row">
+      <div>
+        <label>Language</label>
+        <select name="lang" required>
+          <option value="ro">ro</option>
+          <option value="en">en</option>
+          <option value="de">de</option>
+          <option value="fr">fr</option>
+        </select>
+      </div>
+      <div>
+        <label>Videos count</label>
+        <select name="videos_count" required>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Product ID</label>
+    <input name="product_id" required placeholder="SKU-123" />
+
+    <label>Product Image URL</label>
+    <input name="product_image_url" type="url" required placeholder="https://..." />
+
+    <div class="row">
+      <div>
+        <label>Model</label>
+        <select name="model" required>
+          <option value="veo3_fast">veo3_fast</option>
+          <option value="veo3">veo3</option>
+        </select>
+      </div>
+      <div>
+        <label>Aspect ratio</label>
+        <select name="aspect_ratio" required>
+          <option value="9:16">9:16</option>
+          <option value="16:9">16:9</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Dialog (optional)</label>
+    <textarea name="dialog" rows="3" placeholder="Max 130 chars per scene (agentul poate rescrie)."></textarea>
+
+    <label>Special request (optional)</label>
+    <textarea name="special_request" rows="3" placeholder="Ex: casual iPhone selfie, baie, lumina slabă, etc."></textarea>
+
+    <button id="btn" type="submit">Trimite</button>
+    <div id="msg" style="display:none;"></div>
+  </form>
+
+<script>
+  // ✅ pune aici URL-ul webhook-ului tău din n8n (production)
+  const N8N_WEBHOOK_URL = "https://YOUR-N8N-DOMAIN/webhook/ugc/submit";
+
+  const f = document.getElementById("f");
+  const btn = document.getElementById("btn");
+  const msg = document.getElementById("msg");
+
+  // optional: prefill din querystring (?email=...&product_id=...)
+  (function prefill() {
+    const q = new URLSearchParams(location.search);
+    for (const [k,v] of q.entries()) {
+      const el = f.elements[k];
+      if (el) el.value = v;
+    }
+  })();
+
+  function show(text) {
+    msg.style.display = "block";
+    msg.textContent = text;
+  }
+
+  function normalizePayload(fd) {
+    const payload = Object.fromEntries(fd.entries());
+
+    payload.email = (payload.email || "").trim().toLowerCase();
+    payload.product_id = (payload.product_id || "").trim();
+    payload.product_image_url = (payload.product_image_url || "").trim();
+    payload.dialog = (payload.dialog || "").trim();
+    payload.special_request = (payload.special_request || "").trim();
+
+    // force numeric as string is ok, but keep clean
+    payload.videos_count = String(parseInt(payload.videos_count || "1", 10) || 1);
+
+    return payload;
+  }
+
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    btn.disabled = true;
+    show("Trimit...");
+
+    const payload = normalizePayload(new FormData(f));
+
+    // ultra basic validation
+    if (!payload.email || !payload.product_id || !payload.product_image_url) {
+      btn.disabled = false;
+      show("Eroare: email, product_id și product_image_url sunt obligatorii.");
+      return;
+    }
+
+    try {
+      const res = await fetch(N8N_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); } catch { data = { raw }; }
+
+      if (!res.ok) {
+        const err = data?.error || data?.message || JSON.stringify(data, null, 2);
+        show("Respins:\n" + err);
+        btn.disabled = false;
+        return;
+      }
+
+      show("OK:\n" + JSON.stringify(data, null, 2));
+      f.reset();
+    } catch (err) {
+      show("Eroare rețea / CORS:\n" + err.message + "\n\nVerifică: Webhook CORS enabled + URL corect.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
